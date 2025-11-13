@@ -2,14 +2,21 @@ from typing import List, Dict, Any
 from pydantic import BaseModel
 import json
 import time
+import os
+from dotenv import load_dotenv
+import requests
 
 # --- ADK IMPORTS ---
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from google.adk.models import Gemini
 
-# ================= Data Models =================
+# ================= Load ENV =================
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_URL = os.getenv("OPENAI_URL")
 
+# ================= Data Models =================
 class Criterion(BaseModel):
     id: str
     description: str
@@ -30,11 +37,10 @@ class EvalInput(BaseModel):
     test_case_id: str
     test_case_text: str
     context_docs: List[ContextDoc]
-    rubric: Rubric   # כאן נכנס כל רובריק דינמי
+    rubric: Rubric
     request_id: str = None
 
 # ================= Helper Functions =================
-
 def normalize_raw_score(raw: float, rubric_scale: Dict[str, float]) -> float:
     min_s = rubric_scale.get("min", 0)
     max_s = rubric_scale.get("max", 5)
@@ -56,9 +62,8 @@ def compute_final_score(scores: Dict[str, float], rubric: Rubric) -> Dict[str, A
     return {"final_score": total, "normalized_final": normalized}
 
 def build_prompt(inp: EvalInput) -> str:
-    rubric_json = inp.rubric.model_dump_json()  # Pydantic V2
-    ctx = [{"id": d.id, "source": d.source, "text": d.text[:1200]}
-           for d in inp.context_docs[:3]]
+    rubric_json = inp.rubric.model_dump_json()
+    ctx = [{"id": d.id, "source": d.source, "text": d.text[:1200]} for d in inp.context_docs[:3]]
     prompt = (
         "You are an automated test evaluator. Given the Rubric, Context docs and Test Case, "
         "return a JSON object with per-criterion scores, comments and evidence.\n\n"
@@ -99,13 +104,11 @@ def evaluate_test_case_func(payload: Dict[str, Any], model_client: Gemini = None
             or llm_resp.get("choices", [{}])[0].get("message", {}).get("content", "")
         )
     else:
-        import requests
         try:
             resp = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                json={"model": "gpt-4o",
-                      "messages": [{"role": "user", "content": prompt}]},
-                headers={"Authorization": "Bearer <YOUR_API_KEY>"},
+                OPENAI_API_URL,
+                json={"model": "gpt-4o", "messages": [{"role": "user", "content": prompt}]},
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
                 timeout=20
             )
             resp.raise_for_status()
@@ -151,7 +154,7 @@ if __name__ == "__main__":
 
     print("--- Running Test Case Evaluation Tool Directly ---")
 
-    # דוגמה לדינמיקה: אפשר לשים פה כל רובריק
+    # דוגמה לרובריק דינמי
     with open("rubric.json", "r", encoding="utf-8") as f:
         rubric_obj = Rubric.parse_obj(json.load(f))
 
@@ -167,7 +170,7 @@ if __name__ == "__main__":
         test_case_id="tc001",
         test_case_text="Write a function that sums all numbers in a list.",
         context_docs=[ContextDoc.parse_obj(d) for d in dummy_context],
-        rubric=rubric_obj,  # כאן נכנס כל רובריק שתטעין
+        rubric=rubric_obj,
         request_id="req001"
     )
 
