@@ -19,9 +19,14 @@ def ask_gpt(prompt: str) -> str:
         "model": "gpt-4o",  # או כל מודל אחר
         "messages": [{"role": "user", "content": prompt}]
     }
-    response = requests.post(openai_url, headers=headers, json=data)
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
+    try:
+        response = requests.post(openai_url, headers=headers, json=data)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except requests.exceptions.RequestException as e:
+        return f"Error communicating with GPT: {e}"
+    except KeyError:
+        return f"Unexpected response format: {response.text}"
  
 # יצירת הסוכן
 my_agent = Agent(
