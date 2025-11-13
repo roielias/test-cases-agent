@@ -1,0 +1,26 @@
+{
+  "rubric_id": "basic_functionality_v1",
+  "criteria": [
+    {
+      "id": "coverage",
+      "description": "Does the test cover all required functional points?",
+      "weight": 0.4
+    },
+    {
+      "id": "clarity",
+      "description": "Is the test clear and actionable?",
+      "weight": 0.2
+    },
+    {
+      "id": "edge_cases",
+      "description": "Are edge cases considered?",
+      "weight": 0.2
+    },
+    {
+      "id": "traceability",
+      "description": "Can the test be traced back to spec lines?",
+      "weight": 0.2
+    }
+  ],
+  "score_scale": { "min": 0, "max": 5 }
+}
