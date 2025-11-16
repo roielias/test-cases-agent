@@ -10,21 +10,18 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 from utils.ask_llm import ask_gpt
+import redis
 
 
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 FAISS_DIM = 1536
-
-# ------------------------------
-# Redis
-# ------------------------------
 r = redis.from_url(REDIS_URL)
 try:
     response = r.ping()
-    print("Redis מחובר!", response)  # 
+    print("Redis !", response)  
 except redis.ConnectionError:
-    print("לא מצליחים להתחבר ל-Redis")
+    print("Error: Could not connect to Redis.")
 # ------------------------------
 # Load scripts folder
 # ------------------------------
@@ -143,17 +140,70 @@ my_agent = Agent(
 # ------------------------------
 # Agent handler
 # ------------------------------
+# ------------------------------
+# Agent handler (Updated with RAG debug)
+# ------------------------------
 def agent_handler(session_id: str, user_question: str) -> str:
-    relevant = faiss_mgr.search(user_question)
-    prompt_text = build_prompt(session_id, user_question, relevant)
 
+    print("\n==============================")
+    print(" שאלה חדשה:", user_question)
+    print("==============================")
+
+    # --- שלב 1: חיפוש FAISS ---
+    relevant = faiss_mgr.search(user_question)
+
+    if relevant:
+        print(" FAISS HIT — נמצאו מסמכים רלוונטיים:")
+        for i, item in enumerate(relevant):
+            print(f"  [{i+1}] מקור: {item['name']}")
+    else:
+        print(" FAISS MISS — אין תוצאות FAISS")
+
+    # --- שלב 2: שליפת קונטקסט מרדיס ---
+    context = get_session_context(session_id)
+
+    if context:
+        print("📦 Redis HIT — יש קונטקסט מהיסטוריה:")
+        print("תוכן:", context[-1])
+        history_text = "\n".join([f"User: {q}\nAgent: {a}" for q, a in context])
+    else:
+        print(" Redis MISS — אין היסטוריה לשיחה")
+        history_text = ""
+
+    # --- בניית פרומפט חזק כדי שהמודל ישתמש בקונטקסט ---
+    docs_text = "\n".join([item["text"] for item in relevant])
+
+    prompt_text = f"""
+אתה עוזר חכם שמקבל גם קונטקסט מהיסטוריית Redis וגם מסמכים מ-FAISS.
+עליך להשתמש בקונטקסט אם הוא קשור לשאלה.
+
+היסטוריית שיחה:
+{history_text}
+
+מסמכים רלוונטיים מ-FAISS:
+{docs_text}
+
+שאלה:
+{user_question}
+
+ענה בצורה ישירה תוך שימוש בחומר לעיל.
+"""
+
+    print("\ פרומפט שנשלח ל-LLM:")
+    print(prompt_text)
+
+    # --- שלב 3: קריאה ל־GPT ---
     answer = ask_gpt(prompt_text)
 
-    ctx = get_session_context(session_id)
-    ctx.append((user_question, answer))
-    save_session_context(session_id, ctx)
+    # --- שלב 4: שמירת ההיסטוריה ברדיס ---
+    context.append((user_question, answer))
+    save_session_context(session_id, context)
+
+    print("\ תשובת הסוכן:", answer)
+    print("==============================\n")
 
     return answer
+
 
 
 # ------------------------------
@@ -162,3 +212,6 @@ def agent_handler(session_id: str, user_question: str) -> str:
 if __name__ == "__main__":
     print(agent_handler("111", "מי נשיא ארה״ב?"))
     print(agent_handler("111", "ומי נשיא ישראל?"))
+    print(agent_handler("221", "שלום מי אתה?"))
+    print(agent_handler("221", "מה אמרתי לפני השאלה הזו?"))
+
